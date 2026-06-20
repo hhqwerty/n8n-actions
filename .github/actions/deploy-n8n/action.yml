@@ -63,10 +63,17 @@ runs:
           echo "▶ $NAME  ($f)"
 
           if [ -n "$N8N_ID" ]; then
-            # Deactivate first so n8n doesn't re-validate credentials on update
-            DEACT=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$N8N_API_URL/api/v1/workflows/$N8N_ID/deactivate" \
+            # GET existing workflow to preserve credential links set in n8n UI
+            EXISTING=$(curl -s "$N8N_API_URL/api/v1/workflows/$N8N_ID" \
               -H "X-N8N-API-KEY: $N8N_API_KEY")
-            echo "  deactivate: HTTP $DEACT"
+            # Build map: node name → credentials object (from live n8n)
+            CREDS_MAP=$(echo "$EXISTING" | jq '[.nodes[] | select(.credentials != null) | {key: .name, value: .credentials}] | from_entries')
+            # Merge credentials back into our payload nodes
+            PAYLOAD=$(echo "$PAYLOAD" | jq --argjson creds "$CREDS_MAP" '
+              .nodes |= map(
+                if $creds[.name] != null then . + {credentials: $creds[.name]} else . end
+              )
+            ')
             RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT "$N8N_API_URL/api/v1/workflows/$N8N_ID" \
               -H "X-N8N-API-KEY: $N8N_API_KEY" \
               -H "Content-Type: application/json" \
