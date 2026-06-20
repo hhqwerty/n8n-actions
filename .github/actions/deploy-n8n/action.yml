@@ -2,7 +2,6 @@ name: Deploy n8n Workflows
 description: >
   Sync workflow JSON files from a repo's workflows/ folder to an n8n instance.
   Tracks n8n workflow IDs in manifest.json — creates on first deploy, updates on subsequent pushes.
-  Supports Cloudflare Access via CF_CLIENT_ID + CF_CLIENT_SECRET secrets.
 
 inputs:
   n8n-api-url:
@@ -15,10 +14,6 @@ inputs:
     description: Folder containing workflow JSON files
     required: false
     default: workflows
-  cf-deploy-token:
-    description: Secret token for Cloudflare WAF bypass (sent as x-deploy-token header)
-    required: false
-    default: ""
 
 runs:
   using: composite
@@ -29,11 +24,9 @@ runs:
         N8N_API_URL: ${{ inputs.n8n-api-url }}
         N8N_API_KEY: ${{ inputs.n8n-api-key }}
         WORKFLOWS_DIR: ${{ inputs.workflows-dir }}
-        CF_DEPLOY_TOKEN: ${{ inputs.cf-deploy-token }}
       run: |
         set -uo pipefail
 
-        # Validate required inputs
         if [ -z "$N8N_API_URL" ]; then
           echo "::error::N8N_API_URL is empty. Add N8N_API_URL as a repository secret."
           exit 1
@@ -41,13 +34,6 @@ runs:
         if [ -z "$N8N_API_KEY" ]; then
           echo "::error::N8N_API_KEY is empty. Add N8N_API_KEY as a repository secret."
           exit 1
-        fi
-
-        # Build Cloudflare bypass header if provided
-        CF_HEADERS=()
-        if [ -n "$CF_DEPLOY_TOKEN" ]; then
-          CF_HEADERS=(-H "x-deploy-token: $CF_DEPLOY_TOKEN")
-          echo "Cloudflare bypass: enabled"
         fi
 
         MANIFEST="manifest.json"
@@ -78,7 +64,6 @@ runs:
 
           if [ -n "$N8N_ID" ]; then
             RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT "$N8N_API_URL/api/v1/workflows/$N8N_ID" \
-              "${CF_HEADERS[@]}" \
               -H "X-N8N-API-KEY: $N8N_API_KEY" \
               -H "Content-Type: application/json" \
               -d "$PAYLOAD") || { echo "  ✗ curl error (is N8N_API_URL reachable?)"; FAILED=1; continue; }
@@ -93,7 +78,6 @@ runs:
             fi
           else
             RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$N8N_API_URL/api/v1/workflows" \
-              "${CF_HEADERS[@]}" \
               -H "X-N8N-API-KEY: $N8N_API_KEY" \
               -H "Content-Type: application/json" \
               -d "$PAYLOAD") || { echo "  ✗ curl error (is N8N_API_URL reachable?)"; FAILED=1; continue; }
