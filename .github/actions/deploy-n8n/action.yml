@@ -2,6 +2,7 @@ name: Deploy n8n Workflows
 description: >
   Sync workflow JSON files from a repo's workflows/ folder to an n8n instance.
   Tracks n8n workflow IDs in manifest.json — creates on first deploy, updates on subsequent pushes.
+  Supports Cloudflare Access via CF_CLIENT_ID + CF_CLIENT_SECRET secrets.
 
 inputs:
   n8n-api-url:
@@ -14,6 +15,14 @@ inputs:
     description: Folder containing workflow JSON files
     required: false
     default: workflows
+  cf-client-id:
+    description: Cloudflare Access Service Token Client ID (CF-Access-Client-Id header)
+    required: false
+    default: ""
+  cf-client-secret:
+    description: Cloudflare Access Service Token Client Secret (CF-Access-Client-Secret header)
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -24,6 +33,8 @@ runs:
         N8N_API_URL: ${{ inputs.n8n-api-url }}
         N8N_API_KEY: ${{ inputs.n8n-api-key }}
         WORKFLOWS_DIR: ${{ inputs.workflows-dir }}
+        CF_CLIENT_ID: ${{ inputs.cf-client-id }}
+        CF_CLIENT_SECRET: ${{ inputs.cf-client-secret }}
       run: |
         set -uo pipefail
 
@@ -35,6 +46,13 @@ runs:
         if [ -z "$N8N_API_KEY" ]; then
           echo "::error::N8N_API_KEY is empty. Add N8N_API_KEY as a repository secret."
           exit 1
+        fi
+
+        # Build Cloudflare Access headers if provided
+        CF_HEADERS=()
+        if [ -n "$CF_CLIENT_ID" ] && [ -n "$CF_CLIENT_SECRET" ]; then
+          CF_HEADERS=(-H "CF-Access-Client-Id: $CF_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_CLIENT_SECRET")
+          echo "Cloudflare Access: enabled"
         fi
 
         MANIFEST="manifest.json"
@@ -65,6 +83,7 @@ runs:
 
           if [ -n "$N8N_ID" ]; then
             RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT "$N8N_API_URL/api/v1/workflows/$N8N_ID" \
+              "${CF_HEADERS[@]}" \
               -H "X-N8N-API-KEY: $N8N_API_KEY" \
               -H "Content-Type: application/json" \
               -d "$PAYLOAD") || { echo "  ✗ curl error (is N8N_API_URL reachable?)"; FAILED=1; continue; }
@@ -79,6 +98,7 @@ runs:
             fi
           else
             RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$N8N_API_URL/api/v1/workflows" \
+              "${CF_HEADERS[@]}" \
               -H "X-N8N-API-KEY: $N8N_API_KEY" \
               -H "Content-Type: application/json" \
               -d "$PAYLOAD") || { echo "  ✗ curl error (is N8N_API_URL reachable?)"; FAILED=1; continue; }
