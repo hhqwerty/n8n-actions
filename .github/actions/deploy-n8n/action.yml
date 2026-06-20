@@ -64,8 +64,9 @@ runs:
 
           if [ -n "$N8N_ID" ]; then
             # Deactivate first so n8n doesn't re-validate credentials on update
-            curl -s -X PATCH "$N8N_API_URL/api/v1/workflows/$N8N_ID/deactivate" \
-              -H "X-N8N-API-KEY: $N8N_API_KEY" > /dev/null 2>&1 || true
+            DEACT=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$N8N_API_URL/api/v1/workflows/$N8N_ID/deactivate" \
+              -H "X-N8N-API-KEY: $N8N_API_KEY")
+            echo "  deactivate: HTTP $DEACT"
             RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT "$N8N_API_URL/api/v1/workflows/$N8N_ID" \
               -H "X-N8N-API-KEY: $N8N_API_KEY" \
               -H "Content-Type: application/json" \
