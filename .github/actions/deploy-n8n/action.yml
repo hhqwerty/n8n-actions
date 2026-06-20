@@ -57,12 +57,15 @@ runs:
         for f in "${files[@]}"; do
           NAME=$(jq -r '.name // "unknown"' "$f")
           N8N_ID=$(jq -r --arg k "$f" '.[$k] // empty' "$MANIFEST")
-          PAYLOAD=$(jq '{name, nodes, connections, settings, active: false}' "$f")
+          PAYLOAD=$(jq '{name, nodes, connections, settings}' "$f")
 
           echo ""
           echo "▶ $NAME  ($f)"
 
           if [ -n "$N8N_ID" ]; then
+            # Deactivate first so n8n doesn't re-validate credentials on update
+            curl -s -X PATCH "$N8N_API_URL/api/v1/workflows/$N8N_ID/deactivate" \
+              -H "X-N8N-API-KEY: $N8N_API_KEY" > /dev/null 2>&1 || true
             RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT "$N8N_API_URL/api/v1/workflows/$N8N_ID" \
               -H "X-N8N-API-KEY: $N8N_API_KEY" \
               -H "Content-Type: application/json" \
