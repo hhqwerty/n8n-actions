@@ -25,7 +25,18 @@ runs:
         N8N_API_KEY: ${{ inputs.n8n-api-key }}
         WORKFLOWS_DIR: ${{ inputs.workflows-dir }}
       run: |
-        set -euo pipefail
+        set -uo pipefail
+
+        # Validate required inputs
+        if [ -z "$N8N_API_URL" ]; then
+          echo "::error::N8N_API_URL is empty. Add N8N_API_URL as a repository secret."
+          exit 1
+        fi
+        if [ -z "$N8N_API_KEY" ]; then
+          echo "::error::N8N_API_KEY is empty. Add N8N_API_KEY as a repository secret."
+          exit 1
+        fi
+
         MANIFEST="manifest.json"
         FAILED=0
 
@@ -56,7 +67,7 @@ runs:
             RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT "$N8N_API_URL/api/v1/workflows/$N8N_ID" \
               -H "X-N8N-API-KEY: $N8N_API_KEY" \
               -H "Content-Type: application/json" \
-              -d "$PAYLOAD")
+              -d "$PAYLOAD") || { echo "  ✗ curl error (is N8N_API_URL reachable?)"; FAILED=1; continue; }
             CODE=$(echo "$RESPONSE" | tail -1)
             BODY=$(echo "$RESPONSE" | sed '$d')
             if [ "$CODE" = "200" ]; then
@@ -70,7 +81,7 @@ runs:
             RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$N8N_API_URL/api/v1/workflows" \
               -H "X-N8N-API-KEY: $N8N_API_KEY" \
               -H "Content-Type: application/json" \
-              -d "$PAYLOAD")
+              -d "$PAYLOAD") || { echo "  ✗ curl error (is N8N_API_URL reachable?)"; FAILED=1; continue; }
             CODE=$(echo "$RESPONSE" | tail -1)
             BODY=$(echo "$RESPONSE" | sed '$d')
             if [ "$CODE" = "200" ] || [ "$CODE" = "201" ]; then
