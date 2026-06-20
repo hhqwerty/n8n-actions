@@ -63,9 +63,10 @@ runs:
           echo "▶ $NAME  ($f)"
 
           if [ -n "$N8N_ID" ]; then
-            # GET existing workflow to preserve credential links set in n8n UI
+            # GET existing workflow to preserve credentials and active state
             EXISTING=$(curl -s "$N8N_API_URL/api/v1/workflows/$N8N_ID" \
               -H "X-N8N-API-KEY: $N8N_API_KEY")
+            WAS_ACTIVE=$(echo "$EXISTING" | jq -r '.active // false')
             # Build map: node name → credentials object (from live n8n)
             CREDS_MAP=$(echo "$EXISTING" | jq '[.nodes[] | select(.credentials != null) | {key: .name, value: .credentials}] | from_entries')
             # Merge credentials back into our payload nodes
@@ -82,6 +83,13 @@ runs:
             BODY=$(echo "$RESPONSE" | sed '$d')
             if [ "$CODE" = "200" ]; then
               echo "  ✓ updated (id: $N8N_ID)"
+              # Re-activate if it was active before the update
+              if [ "$WAS_ACTIVE" = "true" ]; then
+                ACT_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+                  "$N8N_API_URL/api/v1/workflows/$N8N_ID/activate" \
+                  -H "X-N8N-API-KEY: $N8N_API_KEY")
+                [ "$ACT_CODE" = "200" ] && echo "  ✓ re-activated" || echo "  ⚠ re-activate returned HTTP $ACT_CODE"
+              fi
             else
               echo "  ✗ update failed (HTTP $CODE)"
               echo "$BODY"
