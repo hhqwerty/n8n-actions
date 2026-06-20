@@ -57,7 +57,7 @@ runs:
         for f in "${files[@]}"; do
           NAME=$(jq -r '.name // "unknown"' "$f")
           N8N_ID=$(jq -r --arg k "$f" '.[$k] // empty' "$MANIFEST")
-          PAYLOAD=$(jq '{name, nodes, connections, settings}' "$f")
+          PAYLOAD=$(jq '{name, nodes, connections, settings, active: false}' "$f")
 
           echo ""
           echo "▶ $NAME  ($f)"
