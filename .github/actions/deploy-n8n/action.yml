@@ -1,0 +1,101 @@
+name: Deploy n8n Workflows
+description: >
+  Sync workflow JSON files from a repo's workflows/ folder to an n8n instance.
+  Tracks n8n workflow IDs in manifest.json — creates on first deploy, updates on subsequent pushes.
+
+inputs:
+  n8n-api-url:
+    description: n8n instance base URL (e.g. https://your-n8n.com)
+    required: true
+  n8n-api-key:
+    description: n8n API key (from n8n Settings → API)
+    required: true
+  workflows-dir:
+    description: Folder containing workflow JSON files
+    required: false
+    default: workflows
+
+runs:
+  using: composite
+  steps:
+    - name: Deploy workflows to n8n
+      shell: bash
+      env:
+        N8N_API_URL: ${{ inputs.n8n-api-url }}
+        N8N_API_KEY: ${{ inputs.n8n-api-key }}
+        WORKFLOWS_DIR: ${{ inputs.workflows-dir }}
+      run: |
+        set -euo pipefail
+        MANIFEST="manifest.json"
+        FAILED=0
+
+        [ -f "$MANIFEST" ] || echo "{}" > "$MANIFEST"
+
+        shopt -s nullglob
+        files=("$WORKFLOWS_DIR"/*.json)
+
+        if [ ${#files[@]} -eq 0 ]; then
+          echo "No workflow files found in $WORKFLOWS_DIR — nothing to deploy."
+          exit 0
+        fi
+
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  n8n Deploy → $N8N_API_URL"
+        echo "  Workflows:  $WORKFLOWS_DIR/"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+        for f in "${files[@]}"; do
+          NAME=$(jq -r '.name // "unknown"' "$f")
+          N8N_ID=$(jq -r --arg k "$f" '.[$k] // empty' "$MANIFEST")
+          PAYLOAD=$(jq '{name, nodes, connections, settings, tags}' "$f")
+
+          echo ""
+          echo "▶ $NAME  ($f)"
+
+          if [ -n "$N8N_ID" ]; then
+            RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT "$N8N_API_URL/api/v1/workflows/$N8N_ID" \
+              -H "X-N8N-API-KEY: $N8N_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "$PAYLOAD")
+            CODE=$(echo "$RESPONSE" | tail -1)
+            BODY=$(echo "$RESPONSE" | sed '$d')
+            if [ "$CODE" = "200" ]; then
+              echo "  ✓ updated (id: $N8N_ID)"
+            else
+              echo "  ✗ update failed (HTTP $CODE)"
+              echo "$BODY"
+              FAILED=1
+            fi
+          else
+            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$N8N_API_URL/api/v1/workflows" \
+              -H "X-N8N-API-KEY: $N8N_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "$PAYLOAD")
+            CODE=$(echo "$RESPONSE" | tail -1)
+            BODY=$(echo "$RESPONSE" | sed '$d')
+            if [ "$CODE" = "200" ] || [ "$CODE" = "201" ]; then
+              NEW_ID=$(echo "$BODY" | jq -r '.id')
+              jq --arg k "$f" --arg id "$NEW_ID" '.[$k] = $id' "$MANIFEST" > manifest.tmp \
+                && mv manifest.tmp "$MANIFEST"
+              echo "  ✓ created (id: $NEW_ID)"
+            else
+              echo "  ✗ create failed (HTTP $CODE)"
+              echo "$BODY"
+              FAILED=1
+            fi
+          fi
+        done
+
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        [ $FAILED -eq 0 ] && echo "All workflows deployed." || { echo "Some deployments failed."; exit 1; }
+
+    - name: Commit manifest if updated
+      shell: bash
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add manifest.json
+        git diff --staged --quiet && echo "manifest unchanged" && exit 0
+        git commit -m "chore: update n8n workflow IDs in manifest"
+        git push
