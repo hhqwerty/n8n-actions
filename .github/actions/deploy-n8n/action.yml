@@ -41,8 +41,7 @@ runs:
 
         [ -f "$MANIFEST" ] || echo "{}" > "$MANIFEST"
 
-        shopt -s nullglob
-        files=("$WORKFLOWS_DIR"/*.json)
+        mapfile -t files < <(find "$WORKFLOWS_DIR" -name "*.json" -type f | sort)
 
         if [ ${#files[@]} -eq 0 ]; then
           echo "No workflow files found in $WORKFLOWS_DIR — nothing to deploy."
